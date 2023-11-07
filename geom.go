@@ -31,23 +31,17 @@ func (err DistError) Error() string {
 // Point represents a point in n-dimensional Euclidean space.
 type Point []float32
 
-func (p Point) Copy() Point {
-	result := make(Point, len(p))
-	copy(result, p)
-	return result
-}
-
 // Dist computes the Euclidean distance between two points p and q.
 func (p Point) dist(q Point) float32 {
 	if len(p) != len(q) {
 		panic(DimError{len(p), len(q)})
 	}
-	sum := float32(0.0)
+	sum := 0.0
 	for i := range p {
 		dx := p[i] - q[i]
-		sum += dx * dx
+		sum += float64(dx * dx)
 	}
-	return float32(math.Sqrt(float64(sum)))
+	return float32(math.Sqrt(sum))
 }
 
 // minDist computes the square of the distance from a point to a rectangle.
@@ -55,7 +49,7 @@ func (p Point) dist(q Point) float32 {
 //
 // Implemented per Definition 2 of "Nearest Neighbor Queries" by
 // N. Roussopoulos, S. Kelley and F. Vincent, ACM SIGMOD, pages 71-79, 1995.
-func (p Point) minDist(r Rect) float32 {
+func (p Point) minDist(r *Rect) float32 {
 	if len(p) != len(r.p) {
 		panic(DimError{len(p), len(r.p)})
 	}
@@ -81,7 +75,7 @@ func (p Point) minDist(r Rect) float32 {
 //
 // Implemented per Definition 4 of "Nearest Neighbor Queries" by
 // N. Roussopoulos, S. Kelley and F. Vincent, ACM SIGMOD, pages 71-79, 1995.
-func (p Point) minMaxDist(r Rect) float32 {
+func (p Point) minMaxDist(r *Rect) float32 {
 	if len(p) != len(r.p) {
 		panic(DimError{len(p), len(r.p)})
 	}
@@ -113,7 +107,6 @@ func (p Point) minMaxDist(r Rect) float32 {
 		S += d * d
 	}
 
-	// todo  这里的精度问题？
 	// Compute MinMaxDist using the precomputed S.
 	min := float32(math.MaxFloat32)
 	for k := range p {
@@ -134,36 +127,18 @@ type Rect struct {
 	p, q Point // Enforced by NewRect: p[i] <= q[i] for all i.
 }
 
-// 详细输出 rect
-func (r Rect) RectDetail() {
-	if r.p != nil && len(r.p) != 0 {
-		// 就输出
-		for i, v := range r.p {
-			fmt.Printf("p[%d]: %v ", i, v)
-		}
-	}
-	fmt.Println()
-	if r.q != nil && len(r.q) != 0 {
-		// 就输出
-		for i, v := range r.q {
-			fmt.Printf("q[%d]: %v ", i, v)
-		}
-	}
-	fmt.Println()
-}
-
 // PointCoord returns the coordinate of the point of the rectangle at i
-func (r Rect) PointCoord(i int) float32 {
+func (r *Rect) PointCoord(i int) float32 {
 	return r.p[i]
 }
 
 // LengthsCoord returns the coordinate of the lengths of the rectangle at i
-func (r Rect) LengthsCoord(i int) float32 {
+func (r *Rect) LengthsCoord(i int) float32 {
 	return r.q[i] - r.p[i]
 }
 
 // Equal returns true if the two rectangles are equal
-func (r Rect) Equal(other Rect) bool {
+func (r *Rect) Equal(other *Rect) bool {
 	for i, e := range r.p {
 		if e != other.p[i] {
 			return false
@@ -177,7 +152,7 @@ func (r Rect) Equal(other Rect) bool {
 	return true
 }
 
-func (r Rect) String() string {
+func (r *Rect) String() string {
 	s := make([]string, len(r.p))
 	for i, a := range r.p {
 		b := r.q[i]
@@ -189,55 +164,45 @@ func (r Rect) String() string {
 // NewRect constructs and returns a pointer to a Rect given a corner point and
 // the lengths of each dimension.  The point p should be the most-negative point
 // on the rectangle (in every dimension) and every length should be positive.
-func NewRect(p Point, lengths []float32) (r Rect, err error) {
+func NewRect(p Point, lengths []float32) (r *Rect, err error) {
+	r = new(Rect)
 	r.p = p
 	if len(p) != len(lengths) {
 		err = &DimError{len(p), len(lengths)}
 		return
 	}
 	r.q = make([]float32, len(p))
-	//fmt.Println("  test")
 	for i := range p {
 		if lengths[i] <= 0 {
 			err = DistError(lengths[i])
 			return
 		}
 		r.q[i] = p[i] + lengths[i]
-		//fmt.Printf("q: %v, p:%v, length: %v ", r.q[i], p[i], lengths[i])
 	}
-	//fmt.Println("  test")
-	//fmt.Println("new  rect:")
-	//r.RectDetail()
 	return
 }
 
 // NewRectFromPoints constructs and returns a pointer to a Rect given a corner points.
-func NewRectFromPoints(minPoint, maxPoint Point) (r Rect, err error) {
+func NewRectFromPoints(minPoint, maxPoint Point) (r *Rect, err error) {
 	if len(minPoint) != len(maxPoint) {
 		err = &DimError{len(minPoint), len(maxPoint)}
 		return
 	}
 
-	// check that min and max point coordinates require swapping
-	copied := false
+	//checking that  min and max points is swapping
 	for i, p := range minPoint {
 		if minPoint[i] > maxPoint[i] {
-			if !copied {
-				minPoint = minPoint.Copy()
-				maxPoint = maxPoint.Copy()
-				copied = true
-			}
 			minPoint[i] = maxPoint[i]
 			maxPoint[i] = p
 		}
 	}
 
-	r = Rect{p: minPoint, q: maxPoint}
+	r = &Rect{p: minPoint, q: maxPoint}
 	return
 }
 
 // Size computes the measure of a rectangle (the product of its side lengths).
-func (r Rect) Size() float32 {
+func (r *Rect) Size() float32 {
 	size := float32(1.0)
 	for i, a := range r.p {
 		b := r.q[i]
@@ -247,7 +212,7 @@ func (r Rect) Size() float32 {
 }
 
 // margin computes the sum of the edge lengths of a rectangle.
-func (r Rect) margin() float32 {
+func (r *Rect) margin() float32 {
 	// The number of edges in an n-dimensional rectangle is n * 2^(n-1)
 	// (http://en.wikipedia.org/wiki/Hypercube_graph).  Thus the number
 	// of edges of length (ai - bi), where the rectangle is determined
@@ -261,11 +226,11 @@ func (r Rect) margin() float32 {
 		b := r.q[i]
 		sum += b - a
 	}
-	return float32(math.Pow(2, float64(dim-1))) * sum
+	return float32(math.Pow(2, float64(dim-1)) * float64(sum))
 }
 
 // containsPoint tests whether p is located inside or on the boundary of r.
-func (r Rect) containsPoint(p Point) bool {
+func (r *Rect) containsPoint(p Point) bool {
 	if len(p) != len(r.p) {
 		panic(DimError{len(r.p), len(p)})
 	}
@@ -282,28 +247,19 @@ func (r Rect) containsPoint(p Point) bool {
 }
 
 // containsRect tests whether r2 is is located inside r1.
-func (r Rect) containsRect(r2 Rect) bool {
+func (r *Rect) containsRect(r2 *Rect) bool {
 	if len(r.p) != len(r2.p) {
 		panic(DimError{len(r.p), len(r2.p)})
 	}
-	//fmt.Printf("rect1: %v  \n  rect2 %v\n", r, r2)
-	//fmt.Printf("key:%v\n", r.q[1])
-	//fmt.Printf("key2:%v\n", r2.q[1])
+
 	for i, a1 := range r.p {
 		b1, a2, b2 := r.q[i], r2.p[i], r2.q[i]
 		// enforced by constructor: a1 <= b1 and a2 <= b2.
 		// so containment holds if and only if a1 <= a2 <= b2 <= b1
 		// for every dimension.
-		//fmt.Printf("%v %v %v %v  i:%d \n", a1, r2.p[i], r.q[i], r2.q[i], i)
-
-		// 精度检验
 		if a1-a2 > 0.000001 || b2-b1 > 0.000001 {
 			return false
 		}
-		// 原本的
-		//if a1 > a2 || b2 > b1 {
-		//	return false
-		//}
 	}
 
 	return true
@@ -311,7 +267,7 @@ func (r Rect) containsRect(r2 Rect) bool {
 
 // intersect computes the intersection of two rectangles.  If no intersection
 // exists, the intersection is nil.
-func intersect(r1, r2 Rect) bool {
+func intersect(r1, r2 *Rect) bool {
 	dim := len(r1.p)
 	if len(r2.p) != dim {
 		panic(DimError{dim, len(r2.p)})
@@ -356,18 +312,19 @@ func intersect(r1, r2 Rect) bool {
 }
 
 // ToRect constructs a rectangle containing p with side lengths 2*tol.
-func (p Point) ToRect(tol float32) Rect {
+func (p Point) ToRect(tol float32) *Rect {
 	dim := len(p)
 	a, b := make([]float32, dim), make([]float32, dim)
 	for i := range p {
 		a[i] = p[i] - tol
 		b[i] = p[i] + tol
 	}
-	return Rect{a, b}
+	return &Rect{a, b}
 }
 
 // boundingBox constructs the smallest rectangle containing both r1 and r2.
-func boundingBox(r1, r2 Rect) (bb Rect) {
+func boundingBox(r1, r2 *Rect) (bb *Rect) {
+	bb = new(Rect)
 	dim := len(r1.p)
 	bb.p = make([]float32, dim)
 	bb.q = make([]float32, dim)
@@ -385,6 +342,19 @@ func boundingBox(r1, r2 Rect) (bb Rect) {
 		} else {
 			bb.q[i] = r1.q[i]
 		}
+	}
+	return
+}
+
+// boundingBoxN constructs the smallest rectangle containing all of r...
+func boundingBoxN(rects ...*Rect) (bb *Rect) {
+	if len(rects) == 1 {
+		bb = rects[0]
+		return
+	}
+	bb = boundingBox(rects[0], rects[1])
+	for _, rect := range rects[2:] {
+		bb = boundingBox(bb, rect)
 	}
 	return
 }

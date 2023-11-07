@@ -28,10 +28,6 @@ type Rtree struct {
 	root        *node
 	size        int
 	height      int
-
-	// deleted is a temporary buffer to avoid memory allocations in Delete.
-	// It is just an optimization and not part of the data structure.
-	deleted []*node
 }
 
 // NewTree returns an Rtree. If the number of objects given on initialization
@@ -123,19 +119,19 @@ func (tree *Rtree) bulkLoad(objs []Spatial) {
 
 	// following equations are defined in the paper describing OMT
 	var (
-		N = float32(n)
-		M = float32(tree.MaxChildren)
+		N = float64(n)
+		M = float64(tree.MaxChildren)
 	)
 	// Eq1: height of the tree
 	// use log2 instead of log due to rounding errors with log,
 	// eg, math.Log(9) / math.Log(3) > 2
-	h := math.Ceil(math.Log2(float64(N)) / math.Log2(float64(M)))
+	h := math.Ceil(math.Log2(N) / math.Log2(M))
 
 	// Eq2: size of subtrees at the root
-	nsub := math.Pow(float64(M), h-1)
+	nsub := math.Pow(M, h-1)
 
 	// Inner Eq3: number of subtrees at the root
-	s := math.Ceil(float64(N) / nsub)
+	s := math.Ceil(N / nsub)
 
 	// Eq3: number of slices
 	S := math.Floor(math.Sqrt(s))
@@ -167,11 +163,9 @@ func (tree *Rtree) omt(level, nSlices int, objs []entry, m int) *node {
 			child.parent = n
 			return n
 		}
-		entries := make([]entry, len(objs))
-		copy(entries, objs)
 		return &node{
 			leaf:    true,
-			entries: entries,
+			entries: objs,
 			level:   level,
 		}
 	}
@@ -213,9 +207,9 @@ func (tree *Rtree) omt(level, nSlices int, objs []entry, m int) *node {
 // node represents a tree node of an Rtree.
 type node struct {
 	parent  *node
+	leaf    bool
 	entries []entry
 	level   int // node depth in the Rtree
-	leaf    bool
 }
 
 func (n *node) String() string {
@@ -224,7 +218,7 @@ func (n *node) String() string {
 
 // entry represents a spatial index record stored in a tree node.
 type entry struct {
-	bb    Rect // bounding-box of all children of this entry
+	bb    *Rect // bounding-box of all children of this entry
 	child *node
 	obj   Spatial
 }
@@ -238,7 +232,7 @@ func (e entry) String() string {
 
 // Spatial is an interface for objects that can be stored in an Rtree and queried.
 type Spatial interface {
-	Bounds() Rect
+	Bounds() *Rect
 }
 
 // Insertion
@@ -316,16 +310,10 @@ func (tree *Rtree) adjustTree(n, nn *node) (*node, *node) {
 
 	// Re-size the bounding box of n to account for lower-level changes.
 	en := n.getEntry()
-	prevBox := en.bb
 	en.bb = n.computeBoundingBox()
 
 	// If nn is nil, then we're just propagating changes upwards.
 	if nn == nil {
-		// Optimize for the case where nothing is changed
-		// to avoid computeBoundingBox which is expensive.
-		if en.bb.Equal(prevBox) {
-			return tree.root, nil
-		}
 		return tree.adjustTree(n.parent, nil)
 	}
 
@@ -356,16 +344,12 @@ func (n *node) getEntry() *entry {
 }
 
 // computeBoundingBox finds the MBR of the children of n.
-func (n *node) computeBoundingBox() (bb Rect) {
-	if len(n.entries) == 1 {
-		bb = n.entries[0].bb
-		return
+func (n *node) computeBoundingBox() (bb *Rect) {
+	childBoxes := make([]*Rect, len(n.entries))
+	for i, e := range n.entries {
+		childBoxes[i] = e.bb
 	}
-
-	bb = boundingBox(n.entries[0].bb, n.entries[1].bb)
-	for _, e := range n.entries[2:] {
-		bb = boundingBox(bb, e.bb)
-	}
+	bb = boundingBoxN(childBoxes...)
 	return
 }
 
@@ -418,8 +402,8 @@ func (n *node) split(minGroupSize int) (left, right *node) {
 }
 
 // getAllBoundingBoxes traverses tree populating slice of bounding boxes of non-leaf nodes.
-func (n *node) getAllBoundingBoxes() []Rect {
-	var rects []Rect
+func (n *node) getAllBoundingBoxes() []*Rect {
+	var rects []*Rect
 	if n.leaf {
 		return rects
 	}
@@ -478,10 +462,10 @@ func assignGroup(e entry, left, right *node) {
 // pickSeeds chooses two child entries of n to start a split.
 func (n *node) pickSeeds() (int, int) {
 	left, right := 0, 1
-	maxWastedSpace := float32(-1.0)
+	maxWastedSpace := -1.0
 	for i, e1 := range n.entries {
 		for j, e2 := range n.entries[i+1:] {
-			d := boundingBox(e1.bb, e2.bb).Size() - e1.bb.Size() - e2.bb.Size()
+			d := float64(boundingBox(e1.bb, e2.bb).Size() - e1.bb.Size() - e2.bb.Size())
 			if d > maxWastedSpace {
 				maxWastedSpace = d
 				left, right = i, j+i+1
@@ -579,47 +563,34 @@ func (tree *Rtree) findLeaf(n *node, obj Spatial, cmp Comparator) *node {
 
 // condenseTree deletes underflowing nodes and propagates the changes upwards.
 func (tree *Rtree) condenseTree(n *node) {
-	// reset the deleted buffer
-	tree.deleted = tree.deleted[:0]
+	deleted := []*node{}
 
 	for n != tree.root {
 		if len(n.entries) < tree.MinChildren {
-			// find n and delete it by swapping the last entry into its place
-			idx := -1
-			for i, e := range n.parent.entries {
-				if e.child == n {
-					idx = i
-					break
+			// remove n from parent entries
+			entries := []entry{}
+			for _, e := range n.parent.entries {
+				if e.child != n {
+					entries = append(entries, e)
 				}
 			}
-			if idx == -1 {
+			if len(n.parent.entries) == len(entries) {
 				panic(fmt.Errorf("Failed to remove entry from parent"))
 			}
-			l := len(n.parent.entries)
-			n.parent.entries[idx] = n.parent.entries[l-1]
-			n.parent.entries = n.parent.entries[:l-1]
+			n.parent.entries = entries
 
 			// only add n to deleted if it still has children
 			if len(n.entries) > 0 {
-				tree.deleted = append(tree.deleted, n)
+				deleted = append(deleted, n)
 			}
 		} else {
 			// just a child entry deletion, no underflow
-			en := n.getEntry()
-			prevBox := en.bb
-			en.bb = n.computeBoundingBox()
-
-			if en.bb.Equal(prevBox) {
-				// Optimize for the case where nothing is changed
-				// to avoid computeBoundingBox which is expensive.
-				break
-			}
+			n.getEntry().bb = n.computeBoundingBox()
 		}
 		n = n.parent
 	}
 
-	for i := len(tree.deleted) - 1; i >= 0; i-- {
-		n := tree.deleted[i]
+	for _, n := range deleted {
 		// reinsert entry so that it will remain at the same level as before
 		e := entry{n.computeBoundingBox(), n, nil}
 		tree.insert(e, n.level+1)
@@ -631,7 +602,7 @@ func (tree *Rtree) condenseTree(n *node) {
 // SearchIntersect returns all objects that intersect the specified rectangle.
 // Implemented per Section 3.1 of "R-trees: A Dynamic Index Structure for
 // Spatial Searching" by A. Guttman, Proceedings of ACM SIGMOD, p. 47-57, 1984.
-func (tree *Rtree) SearchIntersect(bb Rect, filters ...Filter) []Spatial {
+func (tree *Rtree) SearchIntersect(bb *Rect, filters ...Filter) []Spatial {
 	return tree.searchIntersect([]Spatial{}, tree.root, bb, filters)
 }
 
@@ -641,7 +612,7 @@ func (tree *Rtree) SearchIntersect(bb Rect, filters ...Filter) []Spatial {
 //
 // Kept for backwards compatibility, please use SearchIntersect with a
 // LimitFilter.
-func (tree *Rtree) SearchIntersectWithLimit(k int, bb Rect) []Spatial {
+func (tree *Rtree) SearchIntersectWithLimit(k int, bb *Rect) []Spatial {
 	// backwards compatibility, previous implementation didn't limit results if
 	// k was negative.
 	if k < 0 {
@@ -650,7 +621,7 @@ func (tree *Rtree) SearchIntersectWithLimit(k int, bb Rect) []Spatial {
 	return tree.SearchIntersect(bb, LimitFilter(k))
 }
 
-func (tree *Rtree) searchIntersect(results []Spatial, n *node, bb Rect, filters []Filter) []Spatial {
+func (tree *Rtree) searchIntersect(results []Spatial, n *node, bb *Rect, filters []Filter) []Spatial {
 	for _, e := range n.entries {
 		if !intersect(e.bb, bb) {
 			continue
@@ -682,8 +653,8 @@ func (tree *Rtree) NearestNeighbor(p Point) Spatial {
 
 // GetAllBoundingBoxes returning slice of bounding boxes by traversing tree. Slice
 // includes bounding boxes from all non-leaf nodes.
-func (tree *Rtree) GetAllBoundingBoxes() []Rect {
-	var rects []Rect
+func (tree *Rtree) GetAllBoundingBoxes() []*Rect {
+	var rects []*Rect
 	if tree.root != nil {
 		rects = tree.root.getAllBoundingBoxes()
 	}
@@ -765,28 +736,9 @@ func (tree *Rtree) nearestNeighbor(p Point, n *node, d float32, nearest Spatial)
 			}
 		}
 	} else {
-		// Search only through entries with minDist <= minMinMaxDist,
-		// where minDist is the distance between a point and a rectangle,
-		// and minMaxDist is the smallest value among the maximum distance across all axes.
-		//
-		// Entries with minDist > minMinMaxDist are guaranteed to be farther away than some other entry.
-		//
-		// For more details, please consult
-		// N. Roussopoulos, S. Kelley and F. Vincent, ACM SIGMOD, pages 71-79, 1995.
-		minMinMaxDist := float32(math.MaxFloat32)
-		for _, e := range n.entries {
-			minMaxDist := p.minMaxDist(e.bb)
-			if minMaxDist < minMinMaxDist {
-				minMinMaxDist = minMaxDist
-			}
-		}
-
-		for _, e := range n.entries {
-			minDist := p.minDist(e.bb)
-			if minDist > minMinMaxDist {
-				continue
-			}
-
+		branches, dists := sortEntries(p, n.entries)
+		branches = pruneEntries(p, branches, dists)
+		for _, e := range branches {
 			subNearest, dist := tree.nearestNeighbor(p, e.child, d, nearest)
 			if dist < d {
 				d = dist
@@ -814,7 +766,7 @@ func (tree *Rtree) NearestNeighbors(k int, p Point, filters ...Filter) []Spatial
 	return objs
 }
 
-// todo 准确性检验 sort包没有32位对应的方法，直接改了一个
+// 准确性检验 sort包没有32位对应的方法，直接改了一个
 func SearchFloat32s(a []float32, x float32) int {
 	return sort.Search(len(a), func(i int) bool { return a[i] >= x })
 }

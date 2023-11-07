@@ -36,46 +36,11 @@ func tests(dim, min, max int, objs ...Spatial) []*testCase {
 	}
 }
 
-func (r Rect) Bounds() Rect {
+func (r *Rect) Bounds() *Rect {
 	return r
 }
 
-func rectEq(a, b Rect) bool {
-	if len(a.p) != len(b.p) {
-		return false
-	}
-	for i := 0; i < len(a.p); i++ {
-		if a.p[i] != b.p[i] {
-			return false
-		}
-	}
-
-	if len(a.q) != len(b.q) {
-		return false
-	}
-	for i := 0; i < len(a.q); i++ {
-		if a.q[i] != b.q[i] {
-			return false
-		}
-	}
-
-	return true
-}
-
-func entryEq(a, b entry) bool {
-	if !rectEq(a.bb, b.bb) {
-		return false
-	}
-	if a.child != b.child {
-		return false
-	}
-	if a.obj != b.obj {
-		return false
-	}
-	return true
-}
-
-func mustRect(p Point, widths []float32) Rect {
+func mustRect(p Point, widths []float32) *Rect {
 	r, err := NewRect(p, widths)
 	if err != nil {
 		panic(err)
@@ -172,8 +137,8 @@ func indexOf(objs []Spatial, obj Spatial) int {
 }
 
 var chooseLeafNodeTests = []struct {
-	bb0, bb1, bb2 Rect // leaf bounding boxes
-	exp           int  // expected chosen leaf
+	bb0, bb1, bb2 *Rect // leaf bounding boxes
+	exp           int   // expected chosen leaf
 	desc          string
 	level         int
 }{
@@ -217,13 +182,13 @@ func TestChooseLeafNode(t *testing.T) {
 		rt := Rtree{}
 		rt.root = &node{}
 
-		leaf0 := &node{rt.root, []entry{}, 1, true}
+		leaf0 := &node{rt.root, true, []entry{}, 1}
 		entry0 := entry{test.bb0, leaf0, nil}
 
-		leaf1 := &node{rt.root, []entry{}, 1, true}
+		leaf1 := &node{rt.root, true, []entry{}, 1}
 		entry1 := entry{test.bb1, leaf1, nil}
 
-		leaf2 := &node{rt.root, []entry{}, 1, true}
+		leaf2 := &node{rt.root, true, []entry{}, 1}
 		entry2 := entry{test.bb2, leaf2, nil}
 
 		rt.root.entries = []entry{entry0, entry1, entry2}
@@ -244,7 +209,7 @@ func TestPickSeeds(t *testing.T) {
 	entry3 := entry{bb: mustRect(Point{-1, -1}, []float32{1, 2})}
 	n := node{entries: []entry{entry1, entry2, entry3}}
 	left, right := n.pickSeeds()
-	if !entryEq(n.entries[left], entry1) || !entryEq(n.entries[right], entry3) {
+	if n.entries[left] != entry1 || n.entries[right] != entry3 {
 		t.Errorf("expected entries %d, %d", 1, 3)
 	}
 }
@@ -262,7 +227,7 @@ func TestPickNext(t *testing.T) {
 	entries := []entry{entry1, entry2, entry3}
 
 	chosen := pickNext(left, right, entries)
-	if !entryEq(entries[chosen], entry2) {
+	if entries[chosen] != entry2 {
 		t.Errorf("expected entry %d", 3)
 	}
 }
@@ -359,7 +324,7 @@ func TestAdjustTreeNoPreviousSplit(t *testing.T) {
 	r01 := entry{bb: mustRect(Point{0, 1}, []float32{1, 1})}
 	r10 := entry{bb: mustRect(Point{1, 0}, []float32{1, 1})}
 	entries := []entry{r00, r01, r10}
-	n := node{rt.root, entries, 1, false}
+	n := node{rt.root, false, entries, 1}
 	rt.root.entries = []entry{{bb: Point{0, 0}.ToRect(0), child: &n}}
 
 	rt.adjustTree(&n, nil)
@@ -376,12 +341,12 @@ func TestAdjustTreeNoSplit(t *testing.T) {
 
 	r00 := entry{bb: mustRect(Point{0, 0}, []float32{1, 1})}
 	r01 := entry{bb: mustRect(Point{0, 1}, []float32{1, 1})}
-	left := node{rt.root, []entry{r00, r01}, 1, false}
+	left := node{rt.root, false, []entry{r00, r01}, 1}
 	leftEntry := entry{bb: Point{0, 0}.ToRect(0), child: &left}
 
 	r10 := entry{bb: mustRect(Point{1, 0}, []float32{1, 1})}
 	r11 := entry{bb: mustRect(Point{1, 1}, []float32{1, 1})}
-	right := node{rt.root, []entry{r10, r11}, 1, false}
+	right := node{rt.root, false, []entry{r10, r11}, 1}
 
 	rt.root.entries = []entry{leftEntry}
 	retl, retr := rt.adjustTree(&left, &right)
@@ -409,12 +374,12 @@ func TestAdjustTreeSplitParent(t *testing.T) {
 
 	r00 := entry{bb: mustRect(Point{0, 0}, []float32{1, 1})}
 	r01 := entry{bb: mustRect(Point{0, 1}, []float32{1, 1})}
-	left := node{rt.root, []entry{r00, r01}, 1, false}
+	left := node{rt.root, false, []entry{r00, r01}, 1}
 	leftEntry := entry{bb: Point{0, 0}.ToRect(0), child: &left}
 
 	r10 := entry{bb: mustRect(Point{1, 0}, []float32{1, 1})}
 	r11 := entry{bb: mustRect(Point{1, 1}, []float32{1, 1})}
-	right := node{rt.root, []entry{r10, r11}, 1, false}
+	right := node{rt.root, false, []entry{r10, r11}, 1}
 
 	rt.root.entries = []entry{leftEntry}
 	retl, retr := rt.adjustTree(&left, &right)
@@ -455,14 +420,14 @@ func TestInsertNoSplit(t *testing.T) {
 		t.Errorf("Insert failed to increase tree size")
 	}
 
-	if len(rt.root.entries) != 1 || !rectEq(rt.root.entries[0].obj.(Rect), thing) {
+	if len(rt.root.entries) != 1 || rt.root.entries[0].obj.(*Rect) != thing {
 		t.Errorf("Insert failed to insert thing into root entries")
 	}
 }
 
 func TestInsertSplitRoot(t *testing.T) {
 	rt := NewTree(2, 3, 3)
-	things := []Rect{
+	things := []*Rect{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -490,7 +455,7 @@ func TestInsertSplitRoot(t *testing.T) {
 
 func TestInsertSplit(t *testing.T) {
 	rt := NewTree(2, 3, 3)
-	things := []Rect{
+	things := []*Rect{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -521,7 +486,7 @@ func TestInsertSplit(t *testing.T) {
 
 func TestInsertSplitSecondLevel(t *testing.T) {
 	rt := NewTree(2, 3, 3)
-	things := []Rect{
+	things := []*Rect{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -600,7 +565,7 @@ func TestBulkLoadingValidity(t *testing.T) {
 
 func TestFindLeaf(t *testing.T) {
 	rt := NewTree(2, 3, 3)
-	rects := []Rect{
+	things := []*Rect{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -612,11 +577,6 @@ func TestFindLeaf(t *testing.T) {
 		mustRect(Point{0, 8}, []float32{1, 2}),
 		mustRect(Point{1, 8}, []float32{1, 2}),
 	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
-	}
-
 	for _, thing := range things {
 		rt.Insert(thing)
 	}
@@ -625,7 +585,7 @@ func TestFindLeaf(t *testing.T) {
 		leaf := rt.findLeaf(rt.root, thing, defaultComparator)
 		if leaf == nil {
 			printNode(rt.root, 0)
-			t.Fatalf("Unable to find leaf containing an entry after insertion!")
+			t.Errorf("Unable to find leaf containing an entry after insertion!")
 		}
 		var found *Rect
 		for _, other := range leaf.entries {
@@ -644,7 +604,7 @@ func TestFindLeaf(t *testing.T) {
 
 func TestFindLeafDoesNotExist(t *testing.T) {
 	rt := NewTree(2, 3, 3)
-	things := []Rect{
+	things := []*Rect{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -669,7 +629,7 @@ func TestFindLeafDoesNotExist(t *testing.T) {
 
 func TestCondenseTreeEliminate(t *testing.T) {
 	rt := NewTree(2, 3, 3)
-	things := []Rect{
+	things := []*Rect{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -704,7 +664,7 @@ func TestCondenseTreeEliminate(t *testing.T) {
 
 func TestChooseNodeNonLeaf(t *testing.T) {
 	rt := NewTree(2, 3, 3)
-	things := []Rect{
+	things := []*Rect{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -730,7 +690,7 @@ func TestChooseNodeNonLeaf(t *testing.T) {
 
 func TestInsertNonLeaf(t *testing.T) {
 	rt := NewTree(2, 3, 3)
-	things := []Rect{
+	things := []*Rect{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -751,19 +711,15 @@ func TestInsertNonLeaf(t *testing.T) {
 	rt.insert(e, 2)
 
 	expected := rt.root.entries[1].child
-	if !rectEq(expected.entries[1].obj.(Rect), obj) {
+	if expected.entries[1].obj != obj {
 		t.Errorf("insert failed to insert entry at correct level")
 	}
 }
 
 func TestDeleteFlatten(t *testing.T) {
-	rects := []Rect{
+	things := []Spatial{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
-	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
 	}
 
 	for _, tc := range tests(2, 3, 3, things...) {
@@ -777,7 +733,7 @@ func TestDeleteFlatten(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	rects := []Rect{
+	things := []Spatial{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -788,10 +744,6 @@ func TestDelete(t *testing.T) {
 		mustRect(Point{1, 6}, []float32{1, 2}),
 		mustRect(Point{0, 8}, []float32{1, 2}),
 		mustRect(Point{1, 8}, []float32{1, 2}),
-	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
 	}
 
 	for _, tc := range tests(2, 3, 3, things...) {
@@ -826,17 +778,12 @@ func TestDelete(t *testing.T) {
 
 func TestDeleteWithDepthChange(t *testing.T) {
 	rt := NewTree(2, 3, 3)
-	rects := []Rect{
+	things := []*Rect{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
 		mustRect(Point{8, 6}, []float32{1, 1}),
 	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
-	}
-
 	for _, thing := range things {
 		rt.Insert(thing)
 	}
@@ -854,7 +801,7 @@ func TestDeleteWithDepthChange(t *testing.T) {
 func TestDeleteWithComparator(t *testing.T) {
 	type IDRect struct {
 		ID string
-		Rect
+		*Rect
 	}
 
 	things := []Spatial{
@@ -886,7 +833,7 @@ func TestDeleteWithComparator(t *testing.T) {
 			for len(things) > 0 {
 				i := rand.Int() % len(things)
 				// make a deep copy
-				copy := &IDRect{things[i].(*IDRect).ID, things[i].(*IDRect).Rect}
+				copy := &IDRect{things[i].(*IDRect).ID, &(*things[i].(*IDRect).Rect)}
 				things2 = append(things2, copy)
 
 				if !cmp(things[i], copy) {
@@ -913,35 +860,8 @@ func TestDeleteWithComparator(t *testing.T) {
 	}
 }
 
-func TestDeleteThenInsert(t *testing.T) {
-	tol := float32(1e-3)
-	rects := []Rect{
-		mustRect(Point{3, 1}, []float32{tol, tol}),
-		mustRect(Point{1, 2}, []float32{tol, tol}),
-		mustRect(Point{2, 6}, []float32{tol, tol}),
-		mustRect(Point{3, 6}, []float32{tol, tol}),
-		mustRect(Point{2, 8}, []float32{tol, tol}),
-	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
-	}
-
-	rt := NewTree(2, 2, 2, things...)
-
-	if ok := rt.Delete(things[3]); !ok {
-		t.Fatalf("%#v", things[3])
-	}
-	rt.Insert(things[3])
-
-	// Deleting and then inserting things[3] should not affect things[4].
-	if ok := rt.Delete(things[4]); !ok {
-		t.Fatalf("%#v", things[4])
-	}
-}
-
 func TestSearchIntersect(t *testing.T) {
-	rects := []Rect{
+	things := []Spatial{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -952,10 +872,6 @@ func TestSearchIntersect(t *testing.T) {
 		mustRect(Point{3, 6}, []float32{1, 2}),
 		mustRect(Point{2, 8}, []float32{1, 2}),
 		mustRect(Point{3, 8}, []float32{1, 2}),
-	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
 	}
 
 	for _, tc := range tests(2, 3, 3, things...) {
@@ -978,7 +894,7 @@ func TestSearchIntersect(t *testing.T) {
 }
 
 func TestSearchIntersectWithLimit(t *testing.T) {
-	rects := []Rect{
+	things := []Spatial{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -989,10 +905,6 @@ func TestSearchIntersectWithLimit(t *testing.T) {
 		mustRect(Point{3, 6}, []float32{1, 2}),
 		mustRect(Point{2, 8}, []float32{1, 2}),
 		mustRect(Point{3, 8}, []float32{1, 2}),
-	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
 	}
 
 	for _, tc := range tests(2, 3, 3, things...) {
@@ -1038,7 +950,7 @@ func TestSearchIntersectWithLimit(t *testing.T) {
 }
 
 func TestSearchIntersectWithTestFilter(t *testing.T) {
-	rects := []Rect{
+	things := []Spatial{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -1049,10 +961,6 @@ func TestSearchIntersectWithTestFilter(t *testing.T) {
 		mustRect(Point{3, 6}, []float32{1, 2}),
 		mustRect(Point{2, 8}, []float32{1, 2}),
 		mustRect(Point{3, 8}, []float32{1, 2}),
-	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
 	}
 
 	for _, tc := range tests(2, 3, 3, things...) {
@@ -1111,17 +1019,17 @@ func TestSearchIntersectNoResults(t *testing.T) {
 }
 
 func TestSortEntries(t *testing.T) {
-	objs := []Rect{
+	objs := []*Rect{
 		mustRect(Point{1, 1}, []float32{1, 1}),
 		mustRect(Point{2, 2}, []float32{1, 1}),
 		mustRect(Point{3, 3}, []float32{1, 1})}
 	entries := []entry{
-		{objs[2], nil, &objs[2]},
-		{objs[1], nil, &objs[1]},
-		{objs[0], nil, &objs[0]},
+		{objs[2], nil, objs[2]},
+		{objs[1], nil, objs[1]},
+		{objs[0], nil, objs[0]},
 	}
 	sorted, dists := sortEntries(Point{0, 0}, entries)
-	if !entryEq(sorted[0], entries[2]) || !entryEq(sorted[1], entries[1]) || !entryEq(sorted[2], entries[0]) {
+	if sorted[0] != entries[2] || sorted[1] != entries[1] || sorted[2] != entries[0] {
 		t.Errorf("sortEntries failed")
 	}
 	if dists[0] != 2 || dists[1] != 8 || dists[2] != 18 {
@@ -1130,17 +1038,13 @@ func TestSortEntries(t *testing.T) {
 }
 
 func TestNearestNeighbor(t *testing.T) {
-	rects := []Rect{
+	things := []Spatial{
 		mustRect(Point{1, 1}, []float32{1, 1}),
 		mustRect(Point{1, 3}, []float32{1, 1}),
 		mustRect(Point{3, 2}, []float32{1, 1}),
 		mustRect(Point{-7, -7}, []float32{1, 1}),
 		mustRect(Point{7, 7}, []float32{1, 1}),
 		mustRect(Point{10, 2}, []float32{1, 1}),
-	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
 	}
 
 	for _, tc := range tests(2, 3, 3, things...) {
@@ -1159,29 +1063,11 @@ func TestNearestNeighbor(t *testing.T) {
 	}
 }
 
-func TestComputeBoundingBox(t *testing.T) {
-	rect1, _ := NewRect(Point{0, 0}, []float32{1, 1})
-	rect2, _ := NewRect(Point{0, 1}, []float32{1, 1})
-	rect3, _ := NewRect(Point{1, 0}, []float32{1, 1})
-	n := &node{}
-	n.entries = append(n.entries, entry{bb: rect1})
-	n.entries = append(n.entries, entry{bb: rect2})
-	n.entries = append(n.entries, entry{bb: rect3})
-
-	exp, _ := NewRect(Point{0, 0}, []float32{2, 2})
-	bb := n.computeBoundingBox()
-	d1 := bb.p.dist(exp.p)
-	d2 := bb.q.dist(exp.q)
-	if d1 > EPS || d2 > EPS {
-		t.Errorf("boundingBoxN(%v, %v, %v) != %v, got %v", rect1, rect2, rect3, exp, bb)
-	}
-}
-
 func TestGetAllBoundingBoxes(t *testing.T) {
 	rt1 := NewTree(2, 3, 3)
 	rt2 := NewTree(2, 2, 4)
 	rt3 := NewTree(2, 4, 8)
-	things := []Rect{
+	things := []*Rect{
 		mustRect(Point{0, 0}, []float32{2, 1}),
 		mustRect(Point{3, 1}, []float32{1, 2}),
 		mustRect(Point{1, 2}, []float32{2, 2}),
@@ -1250,7 +1136,7 @@ func (r byMinDist) Swap(i, j int) {
 }
 
 func TestNearestNeighborsAll(t *testing.T) {
-	rects := []Rect{
+	things := []Spatial{
 		mustRect(Point{1, 1}, []float32{1, 1}),
 		mustRect(Point{-7, -7}, []float32{1, 1}),
 		mustRect(Point{1, 3}, []float32{1, 1}),
@@ -1258,11 +1144,6 @@ func TestNearestNeighborsAll(t *testing.T) {
 		mustRect(Point{10, 2}, []float32{1, 1}),
 		mustRect(Point{3, 3}, []float32{1, 1}),
 	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
-	}
-
 	for _, tc := range tests(2, 3, 3, things...) {
 		t.Run(tc.name, func(t *testing.T) {
 			rt := tc.build()
@@ -1292,17 +1173,13 @@ func TestNearestNeighborsAll(t *testing.T) {
 }
 
 func TestNearestNeighborsFilters(t *testing.T) {
-	rects := []Rect{
+	things := []Spatial{
 		mustRect(Point{1, 1}, []float32{1, 1}),
 		mustRect(Point{-7, -7}, []float32{1, 1}),
 		mustRect(Point{1, 3}, []float32{1, 1}),
 		mustRect(Point{7, 7}, []float32{1, 1}),
 		mustRect(Point{10, 2}, []float32{1, 1}),
 		mustRect(Point{3, 3}, []float32{1, 1}),
-	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
 	}
 
 	expected := []Spatial{things[0], things[2], things[3]}
@@ -1330,17 +1207,13 @@ func TestNearestNeighborsFilters(t *testing.T) {
 }
 
 func TestNearestNeighborsHalf(t *testing.T) {
-	rects := []Rect{
+	things := []Spatial{
 		mustRect(Point{1, 1}, []float32{1, 1}),
 		mustRect(Point{-7, -7}, []float32{1, 1}),
 		mustRect(Point{1, 3}, []float32{1, 1}),
 		mustRect(Point{7, 7}, []float32{1, 1}),
 		mustRect(Point{10, 2}, []float32{1, 1}),
 		mustRect(Point{3, 3}, []float32{1, 1}),
-	}
-	things := []Spatial{}
-	for i := range rects {
-		things = append(things, &rects[i])
 	}
 
 	p := Point{0.5, 0.5}

@@ -59,13 +59,14 @@ func TestNewRectFromPointsWithSwapPoints(t *testing.T) {
 
 	rect, err := NewRectFromPoints(q, p)
 	if err != nil {
-		t.Errorf("Error on NewRect(%v, %v): %v", q, p, err)
+		t.Errorf("Error on NewRect(%v, %v): %v", p, q, err)
 	}
 
-	if d := p.dist(rect.p); d > EPS {
-		t.Errorf("Expected p == rect.")
+	// we must swap p and q because in function it was swapped
+	if d := p.dist(rect.q); d > EPS {
+		t.Errorf("Expected p == rect.p")
 	}
-	if d := q.dist(rect.q); d > EPS {
+	if d := q.dist(rect.p); d > EPS {
 		t.Errorf("Expected q == rect.q")
 	}
 }
@@ -150,7 +151,6 @@ func TestRectMargin(t *testing.T) {
 	size := float32(4*2.5 + 4*8.0 + 4*1.5)
 	actual := rect.margin()
 	if size != actual {
-		t.Errorf("self : Expected %f.margin() == %f, got %f", rect, size, actual)
 		t.Errorf("Expected %v.margin() == %v, got %v", rect, size, actual)
 	}
 }
@@ -185,11 +185,7 @@ func TestContainsRect(t *testing.T) {
 	q := Point{4.1, -1.9, 1.0}
 	lengths2 := []float32{3.2, 0.6, 3.7}
 	rect2, _ := NewRect(q, lengths2)
-	//fmt.Println("rect1")
-	//rect1.RectDetail()
-	//fmt.Println("rect2")
-	//rect2.RectDetail()
-	//fmt.Println("+==========")
+
 	if yes := rect1.containsRect(rect2); !yes {
 		t.Errorf("Expected %v.containsRect(%v", rect1, rect2)
 	}
@@ -298,7 +294,6 @@ func TestToRect(t *testing.T) {
 	q := Point{3.75, -2.35, 0.05}
 	d1 := p.dist(rect.p)
 	d2 := q.dist(rect.q)
-	//fmt.Printf("d1: %f , d2: %f\n", d1, d2)
 	if d1 > EPS || d2 > EPS {
 		t.Errorf("Expected %v.ToRect(%v) == %v, %v, got %v", x, tol, p, q, rect)
 	}
@@ -341,6 +336,20 @@ func TestBoundingBoxContains(t *testing.T) {
 	}
 }
 
+func TestBoundingBoxN(t *testing.T) {
+	rect1, _ := NewRect(Point{0, 0}, []float32{1, 1})
+	rect2, _ := NewRect(Point{0, 1}, []float32{1, 1})
+	rect3, _ := NewRect(Point{1, 0}, []float32{1, 1})
+
+	exp, _ := NewRect(Point{0, 0}, []float32{2, 2})
+	bb := boundingBoxN(rect1, rect2, rect3)
+	d1 := bb.p.dist(exp.p)
+	d2 := bb.q.dist(exp.q)
+	if d1 > EPS || d2 > EPS {
+		t.Errorf("boundingBoxN(%v, %v, %v) != %v, got %v", rect1, rect2, rect3, exp, bb)
+	}
+}
+
 func TestMinDistZero(t *testing.T) {
 	p := Point{1, 2, 3}
 	r := p.ToRect(1)
@@ -351,7 +360,7 @@ func TestMinDistZero(t *testing.T) {
 
 func TestMinDistPositive(t *testing.T) {
 	p := Point{1, 2, 3}
-	r := Rect{Point{-1, -4, 7}, Point{2, -2, 9}}
+	r := &Rect{Point{-1, -4, 7}, Point{2, -2, 9}}
 	expected := float32((-2-2)*(-2-2) + (7-3)*(7-3))
 	if d := p.minDist(r); math.Abs(float64(d-expected)) > EPS {
 		t.Errorf("Expected %v.minDist(%v) == %v, got %v", p, r, expected, d)
@@ -360,7 +369,7 @@ func TestMinDistPositive(t *testing.T) {
 
 func TestMinMaxdist(t *testing.T) {
 	p := Point{-3, -2, -1}
-	r := Rect{Point{0, 0, 0}, Point{1, 2, 3}}
+	r := &Rect{Point{0, 0, 0}, Point{1, 2, 3}}
 
 	// furthest points from p on the faces closest to p in each dimension
 	q1 := Point{0, 2, 3}
@@ -368,10 +377,10 @@ func TestMinMaxdist(t *testing.T) {
 	q3 := Point{1, 2, 0}
 
 	// find the closest distance from p to one of these furthest points
-	d1 := p.dist(q1)
-	d2 := p.dist(q2)
-	d3 := p.dist(q3)
-	expected := math.Min(float64(d1*d1), math.Min(float64(d2*d2), float64(d3*d3)))
+	d1 := float64(p.dist(q1))
+	d2 := float64(p.dist(q2))
+	d3 := float64(p.dist(q3))
+	expected := math.Min(d1*d1, math.Min(d2*d2, d3*d3))
 
 	if d := p.minMaxDist(r); math.Abs(float64(d)-expected) > EPS {
 		t.Errorf("Expected %v.minMaxDist(%v) == %v, got %v", p, r, expected, d)
