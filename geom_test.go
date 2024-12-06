@@ -59,14 +59,13 @@ func TestNewRectFromPointsWithSwapPoints(t *testing.T) {
 
 	rect, err := NewRectFromPoints(q, p)
 	if err != nil {
-		t.Errorf("Error on NewRect(%v, %v): %v", p, q, err)
+		t.Errorf("Error on NewRect(%v, %v): %v", q, p, err)
 	}
 
-	// we must swap p and q because in function it was swapped
-	if d := p.dist(rect.q); d > EPS {
-		t.Errorf("Expected p == rect.p")
+	if d := p.dist(rect.p); d > EPS {
+		t.Errorf("Expected p == rect.")
 	}
-	if d := q.dist(rect.p); d > EPS {
+	if d := q.dist(rect.q); d > EPS {
 		t.Errorf("Expected q == rect.q")
 	}
 }
@@ -148,9 +147,9 @@ func TestRectMargin(t *testing.T) {
 	p := Point{1.0, -2.5, 3.0}
 	lengths := []float32{2.5, 8.0, 1.5}
 	rect, _ := NewRect(p, lengths)
-	size := float32(4*2.5 + 4*8.0 + 4*1.5)
+	size := 4*2.5 + 4*8.0 + 4*1.5
 	actual := rect.margin()
-	if size != actual {
+	if float32(size) != actual {
 		t.Errorf("Expected %v.margin() == %v, got %v", rect, size, actual)
 	}
 }
@@ -336,20 +335,6 @@ func TestBoundingBoxContains(t *testing.T) {
 	}
 }
 
-func TestBoundingBoxN(t *testing.T) {
-	rect1, _ := NewRect(Point{0, 0}, []float32{1, 1})
-	rect2, _ := NewRect(Point{0, 1}, []float32{1, 1})
-	rect3, _ := NewRect(Point{1, 0}, []float32{1, 1})
-
-	exp, _ := NewRect(Point{0, 0}, []float32{2, 2})
-	bb := boundingBoxN(rect1, rect2, rect3)
-	d1 := bb.p.dist(exp.p)
-	d2 := bb.q.dist(exp.q)
-	if d1 > EPS || d2 > EPS {
-		t.Errorf("boundingBoxN(%v, %v, %v) != %v, got %v", rect1, rect2, rect3, exp, bb)
-	}
-}
-
 func TestMinDistZero(t *testing.T) {
 	p := Point{1, 2, 3}
 	r := p.ToRect(1)
@@ -360,16 +345,16 @@ func TestMinDistZero(t *testing.T) {
 
 func TestMinDistPositive(t *testing.T) {
 	p := Point{1, 2, 3}
-	r := &Rect{Point{-1, -4, 7}, Point{2, -2, 9}}
+	r := Rect{Point{-1, -4, 7}, Point{2, -2, 9}}
 	expected := float32((-2-2)*(-2-2) + (7-3)*(7-3))
-	if d := p.minDist(r); math.Abs(float64(d-expected)) > EPS {
+	if d := p.minDist(r); math.Abs(d-float64(expected)) > EPS {
 		t.Errorf("Expected %v.minDist(%v) == %v, got %v", p, r, expected, d)
 	}
 }
 
 func TestMinMaxdist(t *testing.T) {
 	p := Point{-3, -2, -1}
-	r := &Rect{Point{0, 0, 0}, Point{1, 2, 3}}
+	r := Rect{Point{0, 0, 0}, Point{1, 2, 3}}
 
 	// furthest points from p on the faces closest to p in each dimension
 	q1 := Point{0, 2, 3}
