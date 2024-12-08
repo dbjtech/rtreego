@@ -36,10 +36,6 @@ func tests(dim, min, max int, objs ...Spatial) []*testCase {
 	}
 }
 
-func (r Rect) Bounds() Rect {
-	return r
-}
-
 func rectEq(a, b Rect) bool {
 	if len(a.p) != len(b.p) {
 		return false
@@ -269,8 +265,8 @@ func TestSplit(t *testing.T) {
 	expLeft := mustRect(Point{1, -1}, []float32{2, 4})
 	expRight := mustRect(Point{-3, -3}, []float32{3, 4})
 
-	lbb := l.computeBoundingBox()
-	rbb := r.computeBoundingBox()
+	lbb := l.ComputeBoundingBox()
+	rbb := r.ComputeBoundingBox()
 	if lbb.p.dist(expLeft.p) >= EPS || lbb.q.dist(expLeft.q) >= EPS {
 		t.Errorf("expected left.bb = %s, got %s", expLeft, lbb)
 	}
@@ -1129,7 +1125,7 @@ func TestNearestNeighbor(t *testing.T) {
 	}
 	things := []Spatial{}
 	for i := range rects {
-		things = append(things, &rects[i])
+		things = append(things, rects[i])
 	}
 
 	for _, tc := range tests(2, 3, 3, things...) {
@@ -1140,8 +1136,20 @@ func TestNearestNeighbor(t *testing.T) {
 			obj2 := rt.NearestNeighbor(Point{1.5, 4.5})
 			obj3 := rt.NearestNeighbor(Point{5, 2.5})
 			obj4 := rt.NearestNeighbor(Point{3.5, 2.5})
-
-			if obj1 != things[0] || obj2 != things[1] || obj3 != things[2] || obj4 != things[2] {
+			rect1 := obj1.(Rect)
+			rect2 := obj2.(Rect)
+			rect3 := obj3.(Rect)
+			rect4 := obj4.(Rect)
+			if !rect1.Equal(rects[0]) {
+				t.Errorf("NearestNeighbor failed")
+			}
+			if !rect2.Equal(rects[1]) {
+				t.Errorf("NearestNeighbor failed")
+			}
+			if !rect3.Equal(rects[2]) {
+				t.Errorf("NearestNeighbor failed")
+			}
+			if !rect4.Equal(rects[2]) {
 				t.Errorf("NearestNeighbor failed")
 			}
 		})
@@ -1158,7 +1166,7 @@ func TestComputeBoundingBox(t *testing.T) {
 	n.entries = append(n.entries, entry{bb: rect3})
 
 	exp, _ := NewRect(Point{0, 0}, []float32{2, 2})
-	bb := n.computeBoundingBox()
+	bb := n.ComputeBoundingBox()
 	d1 := bb.p.dist(exp.p)
 	d2 := bb.q.dist(exp.q)
 	if d1 > EPS || d2 > EPS {
@@ -1367,7 +1375,8 @@ func TestMinMaxDistFloatingPointRoundingError(t *testing.T) {
 	}
 	rt := NewTree(2, 1, 2, things...)
 	n := rt.NearestNeighbor(Point{1134851.8, 25570.8})
-	if n != things[1] {
+	rect := n.(Rect)
+	if !rect.Equal(rects[1]) {
 		t.Fatalf("wrong neighbor, expected %v, got %v", things[1], n)
 	}
 }

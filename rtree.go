@@ -26,14 +26,18 @@ type Rtree struct {
 	MinChildren int
 	MaxChildren int
 	root        *node
-	size        int
+	size        int // 每次调用 Insert 都会加 1，调用 DeleteWithComparator 时会减 1
 	height      int
 
 	// deleted is a temporary buffer to avoid memory allocations in Delete.
 	// It is just an optimization and not part of the data structure.
+	//
+	// 一个临时缓冲区，用于在执行 “删除”（Delete）操作时避免内存分配。它仅仅是一种优化手段，并非数据结构的组成部分
 	deleted []*node
 
 	// FloatingPointTolerance is the tolerance to guard against floating point rounding errors during minMaxDist calculations.
+	//
+	// 在计算最小的最大距离(minMaxDist)过程中用于防范浮点舍入误差的容差。
 	FloatingPointTolerance float64
 }
 
@@ -66,6 +70,8 @@ func NewTree(dim, min, max int, objs ...Spatial) *Rtree {
 }
 
 // Size returns the number of objects currently stored in tree.
+//
+// 返回当前存储在树中的对象的数量。
 func (tree *Rtree) Size() int {
 	return tree.size
 }
@@ -75,6 +81,8 @@ func (tree *Rtree) String() string {
 }
 
 // Depth returns the maximum depth of tree.
+//
+// 返回树的最大深度。
 func (tree *Rtree) Depth() int {
 	return tree.height
 }
@@ -98,6 +106,8 @@ func (s *dimSorter) Less(i, j int) bool {
 
 // walkPartitions splits objs into slices of maximum k elements and
 // iterates over these partitions.
+//
+// 将对象拆分成最大包含 k 个元素的切片，并对这些分区进行迭代
 func walkPartitions(k int, objs []entry, iter func(parts []entry)) {
 	n := (len(objs) + k - 1) / k // ceil(len(objs) / k)
 
@@ -113,6 +123,8 @@ func sortByDim(dim int, objs []entry) {
 
 // bulkLoad bulk loads the Rtree using OMT algorithm. bulkLoad contains special
 // handling for the root node.
+//
+// 使用 OMT 算法批量加载 R 树。批量加载（bulkLoad）操作包含针对根节点的特殊处理。
 func (tree *Rtree) bulkLoad(objs []Spatial) {
 	n := len(objs)
 
@@ -154,6 +166,8 @@ func (tree *Rtree) bulkLoad(objs []Spatial) {
 
 // omt is the recursive part of the Overlap Minimizing Top-loading bulk-
 // load approach. Returns the root node of a subtree.
+//
+// 重叠最小化顶部加载批量加载方法的递归部分。返回一棵子树的根节点。
 func (tree *Rtree) omt(level, nSlices int, objs []entry, m int) *node {
 	// if number of objects is less than or equal than max children per leaf,
 	// we need to create a leaf node
@@ -164,7 +178,7 @@ func (tree *Rtree) omt(level, nSlices int, objs []entry, m int) *node {
 			n := &node{
 				level: level,
 				entries: []entry{{
-					bb:    child.computeBoundingBox(),
+					bb:    child.ComputeBoundingBox(),
 					child: child,
 				}},
 			}
@@ -206,7 +220,7 @@ func (tree *Rtree) omt(level, nSlices int, objs []entry, m int) *node {
 			child.parent = n
 
 			n.entries = append(n.entries, entry{
-				bb:    child.computeBoundingBox(),
+				bb:    child.ComputeBoundingBox(),
 				child: child,
 			})
 		})
@@ -222,13 +236,30 @@ type node struct {
 	leaf    bool
 }
 
+func (n *node) Children() []*node {
+	if len(n.entries) < 1 {
+		return nil
+	}
+	children := make([]*node, len(n.entries))
+	for i, e := range n.entries {
+		children[i] = e.child
+	}
+	return children
+}
+
+func (n *node) Parent() *node {
+	return n.parent
+}
+
 func (n *node) String() string {
 	return fmt.Sprintf("node{leaf: %v, entries: %v}", n.leaf, n.entries)
 }
 
 // entry represents a spatial index record stored in a tree node.
+//
+// 表示存储在树节点中的空间索引记录。
 type entry struct {
-	bb    Rect // bounding-box of all children of this entry
+	bb    Rect // 此 entry 的所有子节点的最小外接矩形边界框。
 	child *node
 	obj   Spatial
 }
@@ -241,8 +272,12 @@ func (e entry) String() string {
 }
 
 // Spatial is an interface for objects that can be stored in an Rtree and queried.
+//
+// R树上存储对象的接口。以提供存储和查询功能。
 type Spatial interface {
 	Bounds() Rect
+	SetParent(parent *node) Spatial
+	GetParent() *node
 }
 
 // Insertion
@@ -252,6 +287,12 @@ type Spatial interface {
 //
 // Implemented per Section 3.2 of "R-trees: A Dynamic Index Structure for
 // Spatial Searching" by A. Guttman, Proceedings of ACM SIGMOD, p. 47-57, 1984.
+//
+// “插入”（Insert）操作会将一个空间对象插入到树中。如果插入操作导致叶子节点溢出，该树会自动重新平衡。
+//
+// 此操作是按照 A. 古特曼（A. Guttman）所著《R 树：一种用于空间搜索的动态索引结构》的第 3.2 节实现的，
+//
+// 该文 1984 年发表于《美国计算机协会数据管理专业组会议论文集》，第 47 - 57 页。
 func (tree *Rtree) Insert(obj Spatial) {
 	e := entry{obj.Bounds(), nil, obj}
 	tree.insert(e, 1)
@@ -259,6 +300,8 @@ func (tree *Rtree) Insert(obj Spatial) {
 }
 
 // insert adds the specified entry to the tree at the specified level.
+//
+// “插入”（insert）操作会将指定的条目添加到树中指定的层级上。
 func (tree *Rtree) insert(e entry, level int) {
 	leaf := tree.chooseNode(tree.root, e, level)
 	leaf.entries = append(leaf.entries, e)
@@ -281,8 +324,8 @@ func (tree *Rtree) insert(e entry, level int) {
 			parent: nil,
 			level:  tree.height,
 			entries: []entry{
-				{bb: oldRoot.computeBoundingBox(), child: oldRoot},
-				{bb: splitRoot.computeBoundingBox(), child: splitRoot},
+				{bb: oldRoot.ComputeBoundingBox(), child: oldRoot},
+				{bb: splitRoot.ComputeBoundingBox(), child: splitRoot},
 			},
 		}
 		oldRoot.parent = tree.root
@@ -291,8 +334,10 @@ func (tree *Rtree) insert(e entry, level int) {
 }
 
 // chooseNode finds the node at the specified level to which e should be added.
+//
+// “选择节点”（chooseNode）操作会在指定层级上查找元素 e 应添加到哪个节点。
 func (tree *Rtree) chooseNode(n *node, e entry, level int) *node {
-	if n.leaf || n.level == level {
+	if n.leaf || n.level == level { // 如果n是叶子节点或者n的层级等于指定的层级，则应添加到该节点 n 上
 		return n
 	}
 
@@ -312,6 +357,8 @@ func (tree *Rtree) chooseNode(n *node, e entry, level int) *node {
 }
 
 // adjustTree splits overflowing nodes and propagates the changes upwards.
+//
+// 拆分溢出的节点，并将更改向上传递。
 func (tree *Rtree) adjustTree(n, nn *node) (*node, *node) {
 	// Let the caller handle root adjustments.
 	if n == tree.root {
@@ -321,12 +368,12 @@ func (tree *Rtree) adjustTree(n, nn *node) (*node, *node) {
 	// Re-size the bounding box of n to account for lower-level changes.
 	en := n.getEntry()
 	prevBox := en.bb
-	en.bb = n.computeBoundingBox()
+	en.bb = n.ComputeBoundingBox()
 
 	// If nn is nil, then we're just propagating changes upwards.
 	if nn == nil {
 		// Optimize for the case where nothing is changed
-		// to avoid computeBoundingBox which is expensive.
+		// to avoid ComputeBoundingBox which is expensive.
 		if en.bb.Equal(prevBox) {
 			return tree.root, nil
 		}
@@ -335,7 +382,7 @@ func (tree *Rtree) adjustTree(n, nn *node) (*node, *node) {
 
 	// Otherwise, these are two nodes resulting from a split.
 	// n was reused as the "left" node, but we need to add nn to n.parent.
-	enn := entry{nn.computeBoundingBox(), nn, nil}
+	enn := entry{nn.ComputeBoundingBox(), nn, nil}
 	n.parent.entries = append(n.parent.entries, enn)
 
 	// If the new entry overflows the parent, split the parent and propagate.
@@ -348,6 +395,8 @@ func (tree *Rtree) adjustTree(n, nn *node) (*node, *node) {
 }
 
 // getEntry returns a pointer to the entry for the node n from n's parent.
+//
+// 为节点 n 返回一个指向其父节点中的对应 entry 的指针。即找到自己的承载主体。
 func (n *node) getEntry() *entry {
 	var e *entry
 	for i := range n.parent.entries {
@@ -359,8 +408,10 @@ func (n *node) getEntry() *entry {
 	return e
 }
 
-// computeBoundingBox finds the MBR of the children of n.
-func (n *node) computeBoundingBox() (bb Rect) {
+// ComputeBoundingBox finds the MBR of the children of n.
+//
+// 查找节点 n 的所有子节点的最小外接矩形边界框
+func (n *node) ComputeBoundingBox() (bb Rect) {
 	if len(n.entries) == 1 {
 		bb = n.entries[0].bb
 		return
@@ -375,6 +426,8 @@ func (n *node) computeBoundingBox() (bb Rect) {
 
 // split splits a node into two groups while attempting to minimize the
 // bounding-box area of the resulting groups.
+//
+// 将一个节点拆分成两组，同时尽量使生成的这两组的边界框面积最小化
 func (n *node) split(minGroupSize int) (left, right *node) {
 	// find the initial split
 	l, r := n.pickSeeds()
@@ -422,6 +475,8 @@ func (n *node) split(minGroupSize int) (left, right *node) {
 }
 
 // getAllBoundingBoxes traverses tree populating slice of bounding boxes of non-leaf nodes.
+//
+// 深度遍历n节点非叶子节点的最小外接矩形边界框切片。
 func (n *node) getAllBoundingBoxes() []Rect {
 	var rects []Rect
 	if n.leaf {
@@ -445,9 +500,11 @@ func assign(e entry, group *node) {
 }
 
 // assignGroup chooses one of two groups to which a node should be added.
+//
+// 将节点分配给 left 和 right 其中一个组。优先分配到合并后外接边框面积最小的组中。若面积相等，则分配到子节点少的那组。
 func assignGroup(e entry, left, right *node) {
-	leftBB := left.computeBoundingBox()
-	rightBB := right.computeBoundingBox()
+	leftBB := left.ComputeBoundingBox()
+	rightBB := right.ComputeBoundingBox()
 	leftEnlarged := boundingBox(leftBB, e.bb)
 	rightEnlarged := boundingBox(rightBB, e.bb)
 
@@ -480,6 +537,8 @@ func assignGroup(e entry, left, right *node) {
 }
 
 // pickSeeds chooses two child entries of n to start a split.
+//
+// 从 n 的子节点中选择两个节点，作为分裂的种子节点,已确保分裂后面积最小。
 func (n *node) pickSeeds() (int, int) {
 	left, right := 0, 1
 	maxWastedSpace := float32(-1.0)
@@ -496,10 +555,12 @@ func (n *node) pickSeeds() (int, int) {
 }
 
 // pickNext chooses an entry to be added to an entry group.
+//
+// 遍历entries中的条目，与left和right的边界框计算增量面积变化，选择一个面积变化最大条目，并返回其在entries中的索引。
 func pickNext(left, right *node, entries []entry) (next int) {
 	maxDiff := -1.0
-	leftBB := left.computeBoundingBox()
-	rightBB := right.computeBoundingBox()
+	leftBB := left.ComputeBoundingBox()
+	rightBB := right.ComputeBoundingBox()
 	for i, e := range entries {
 		d1 := boundingBox(leftBB, e.bb).Size() - leftBB.Size()
 		d2 := boundingBox(rightBB, e.bb).Size() - rightBB.Size()
@@ -520,6 +581,9 @@ func pickNext(left, right *node, entries []entry) (next int) {
 //
 // Implemented per Section 3.3 of "R-trees: A Dynamic Index Structure for
 // Spatial Searching" by A. Guttman, Proceedings of ACM SIGMOD, p. 47-57, 1984.
+//
+// “Delete（删除）” 操作会从树中移除一个对象。如果未找到该对象，则返回 “false”（假），
+// 否则返回 “true”（真）。在检查相等性时，会使用默认的比较器。
 func (tree *Rtree) Delete(obj Spatial) bool {
 	return tree.DeleteWithComparator(obj, defaultComparator)
 }
@@ -528,6 +592,9 @@ func (tree *Rtree) Delete(obj Spatial) bool {
 // comparator for evaluating equalness. This is useful when you want to remove
 // an object from a tree but don't have a pointer to the original object
 // anymore.
+//
+// 使用自定义比较器来评估相等性，进而从树中移除一个对象。当你想要从树中移除一个对象，
+// 但已不再持有指向原始对象的指针时，这一操作就很有用了。
 func (tree *Rtree) DeleteWithComparator(obj Spatial, cmp Comparator) bool {
 	n := tree.findLeaf(tree.root, obj, cmp)
 	if n == nil {
@@ -559,6 +626,8 @@ func (tree *Rtree) DeleteWithComparator(obj Spatial, cmp Comparator) bool {
 }
 
 // findLeaf finds the leaf node containing obj.
+//
+// 查找包含 obj 的叶子节点。可能涉及到递归调用
 func (tree *Rtree) findLeaf(n *node, obj Spatial, cmp Comparator) *node {
 	if n.leaf {
 		return n
@@ -582,6 +651,8 @@ func (tree *Rtree) findLeaf(n *node, obj Spatial, cmp Comparator) *node {
 }
 
 // condenseTree deletes underflowing nodes and propagates the changes upwards.
+//
+// “condenseTree（压缩树）” 操作会删除下溢节点，并将这些变更向上传播。
 func (tree *Rtree) condenseTree(n *node) {
 	// reset the deleted buffer
 	tree.deleted = tree.deleted[:0]
@@ -611,11 +682,11 @@ func (tree *Rtree) condenseTree(n *node) {
 			// just a child entry deletion, no underflow
 			en := n.getEntry()
 			prevBox := en.bb
-			en.bb = n.computeBoundingBox()
+			en.bb = n.ComputeBoundingBox()
 
 			if en.bb.Equal(prevBox) {
 				// Optimize for the case where nothing is changed
-				// to avoid computeBoundingBox which is expensive.
+				// to avoid ComputeBoundingBox which is expensive.
 				break
 			}
 		}
@@ -625,7 +696,7 @@ func (tree *Rtree) condenseTree(n *node) {
 	for i := len(tree.deleted) - 1; i >= 0; i-- {
 		n := tree.deleted[i]
 		// reinsert entry so that it will remain at the same level as before
-		e := entry{n.computeBoundingBox(), n, nil}
+		e := entry{n.ComputeBoundingBox(), n, nil}
 		tree.insert(e, n.level+1)
 	}
 }
@@ -635,6 +706,11 @@ func (tree *Rtree) condenseTree(n *node) {
 // SearchIntersect returns all objects that intersect the specified rectangle.
 // Implemented per Section 3.1 of "R-trees: A Dynamic Index Structure for
 // Spatial Searching" by A. Guttman, Proceedings of ACM SIGMOD, p. 47-57, 1984.
+//
+// （交集搜索） 会返回所有与指定矩形相交的对象。
+// 内部实现涉及遍历和递归调用。
+// 其实现依据是 A. 古特曼（A. Guttman）所著《R - 树：一种用于空间搜索的动态索引结构》的第 3.1 节，
+// 该内容出自 1984 年美国计算机协会数据管理专业组（ACM SIGMOD）的会议论文集，第 47 至 57 页。
 func (tree *Rtree) SearchIntersect(bb Rect, filters ...Filter) []Spatial {
 	return tree.searchIntersect([]Spatial{}, tree.root, bb, filters)
 }
@@ -645,6 +721,10 @@ func (tree *Rtree) SearchIntersect(bb Rect, filters ...Filter) []Spatial {
 //
 // Kept for backwards compatibility, please use SearchIntersect with a
 // LimitFilter.
+//
+// （带限制的交集搜索） 与 “SearchIntersect（交集搜索）” 类似，
+// 但在找到前 k 个结果时会立即返回。当 k 为负数时，其行为与 “SearchIntersect” 完全一样，会返回所有结果。
+// 保留该功能是为了向后兼容，不过请使用带有 “LimitFilter（限制过滤器）” 的 “SearchIntersect” 来实现相应操作。
 func (tree *Rtree) SearchIntersectWithLimit(k int, bb Rect) []Spatial {
 	// backwards compatibility, previous implementation didn't limit results if
 	// k was negative.
@@ -654,6 +734,8 @@ func (tree *Rtree) SearchIntersectWithLimit(k int, bb Rect) []Spatial {
 	return tree.SearchIntersect(bb, LimitFilter(k))
 }
 
+// searchIntersect 搜索指定矩形 bb 在 n 节点中相交的所有对象。
+// 会涉及到遍历和递归调用
 func (tree *Rtree) searchIntersect(results []Spatial, n *node, bb Rect, filters []Filter) []Spatial {
 	for _, e := range n.entries {
 		if !intersect(e.bb, bb) {
@@ -667,7 +749,9 @@ func (tree *Rtree) searchIntersect(results []Spatial, n *node, bb Rect, filters 
 
 		refuse, abort := applyFilters(results, e.obj, filters)
 		if !refuse {
-			results = append(results, e.obj)
+			searchOut := e.obj
+			// searchOut = searchOut.SetParent(n)
+			results = append(results, searchOut)
 		}
 
 		if abort {
@@ -781,7 +865,7 @@ func (tree *Rtree) nearestNeighbor(p Point, n *node, d float64, nearest Spatial)
 			}
 		}
 	}
-
+	nearest = nearest.SetParent(n)
 	return nearest, d
 }
 

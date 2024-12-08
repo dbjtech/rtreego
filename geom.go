@@ -1,6 +1,7 @@
 // Copyright 2012 Daniel Connelly.  All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+// 为了简单表述，下面注释中把所有包络框或者叫边界框，叫做最小外接矩形边框
 
 package rtreego
 
@@ -142,7 +143,8 @@ func (p Point) minMaxDist(r Rect) float64 {
 // Rect represents a subset of n-dimensional Euclidean space of the form
 // [a1, b1] x [a2, b2] x ... x [an, bn], where ai < bi for all 1 <= i <= n.
 type Rect struct {
-	p, q Point // Enforced by NewRect: p[i] <= q[i] for all i.
+	p, q   Point // Enforced by NewRect: p[i] <= q[i] for all i.
+	parent *node
 }
 
 // PointCoord returns the coordinate of the point of the rectangle at i
@@ -179,6 +181,23 @@ func (r Rect) String() string {
 		s[i] = fmt.Sprintf("[%.2f, %.2f]", a, b)
 	}
 	return strings.Join(s, "x")
+}
+
+func (r Rect) SetParent(parent *node) Spatial {
+	r.parent = parent
+	return r
+}
+
+func (r Rect) GetParent() *node {
+	return r.parent
+}
+
+func (r Rect) Bounds() Rect {
+	return r
+}
+
+func (r Rect) StartEnd() []Point {
+	return []Point{r.p, r.q}
 }
 
 // NewRect constructs and returns a pointer to a Rect given a corner point and
@@ -227,6 +246,8 @@ func NewRectFromPoints(minPoint, maxPoint Point) (r Rect, err error) {
 }
 
 // Size computes the measure of a rectangle (the product of its side lengths).
+//
+// 返回矩形的测度如面积/体积等。
 func (r Rect) Size() float32 {
 	size := float32(1.0)
 	for i, a := range r.p {
@@ -345,10 +366,12 @@ func (p Point) ToRect(tol float32) Rect {
 		a[i] = p[i] - tol
 		b[i] = p[i] + tol
 	}
-	return Rect{a, b}
+	return Rect{a, b, nil}
 }
 
 // boundingBox constructs the smallest rectangle containing both r1 and r2.
+//
+// 构建出同时包含 r1 和 r2 的最小矩形。
 func boundingBox(r1, r2 Rect) (bb Rect) {
 	dim := len(r1.p)
 	bb.p = make([]float32, dim)
