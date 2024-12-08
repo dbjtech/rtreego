@@ -949,7 +949,7 @@ func TestSearchIntersect(t *testing.T) {
 
 			p := Point{2, 1.5}
 			bb := mustRect(p, []float32{10, 5.5})
-			q := rt.SearchIntersect(bb)
+			q := rt.SearchIntersect(bb, false)
 
 			var expected []Spatial
 			for _, i := range []int{1, 2, 3, 4, 6, 7} {
@@ -995,7 +995,7 @@ func TestSearchIntersectWithLimit(t *testing.T) {
 			// Loop through all possible limits k of SearchIntersectWithLimit,
 			// and test that the results are as expected.
 			for k := -1; k <= len(things); k++ {
-				q := rt.SearchIntersectWithLimit(k, bb)
+				q := rt.SearchIntersectWithLimit(k, bb, false)
 
 				if k == -1 {
 					ensureDisorderedSubset(t, q, expected)
@@ -1054,7 +1054,7 @@ func TestSearchIntersectWithTestFilter(t *testing.T) {
 			}
 
 			// this test filter will only pick the objects that are in expected
-			objects := rt.SearchIntersect(bb, func(results []Spatial, object Spatial) (bool, bool) {
+			objects := rt.SearchIntersect(bb, false, func(results []Spatial, object Spatial) (bool, bool) {
 				for _, exp := range expected {
 					if exp == object {
 						return false, false
@@ -1087,7 +1087,7 @@ func TestSearchIntersectNoResults(t *testing.T) {
 			rt := tc.build()
 
 			bb := mustRect(Point{99, 99}, []float32{10, 5.5})
-			q := rt.SearchIntersect(bb)
+			q := rt.SearchIntersect(bb, false)
 			if len(q) != 0 {
 				t.Errorf("SearchIntersect failed to return nil slice on failing query")
 			}
@@ -1132,10 +1132,10 @@ func TestNearestNeighbor(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rt := tc.build()
 
-			obj1 := rt.NearestNeighbor(Point{0.5, 0.5})
-			obj2 := rt.NearestNeighbor(Point{1.5, 4.5})
-			obj3 := rt.NearestNeighbor(Point{5, 2.5})
-			obj4 := rt.NearestNeighbor(Point{3.5, 2.5})
+			obj1 := rt.NearestNeighbor(Point{0.5, 0.5}, true)
+			obj2 := rt.NearestNeighbor(Point{1.5, 4.5}, true)
+			obj3 := rt.NearestNeighbor(Point{5, 2.5}, true)
+			obj4 := rt.NearestNeighbor(Point{3.5, 2.5}, true)
 			rect1 := obj1.(Rect)
 			rect2 := obj2.(Rect)
 			rect3 := obj3.(Rect)
@@ -1269,14 +1269,14 @@ func TestNearestNeighborsAll(t *testing.T) {
 			p := Point{0.5, 0.5}
 			sort.Sort(byMinDist{things, p})
 
-			objs := rt.NearestNeighbors(len(things), p)
+			objs := rt.NearestNeighbors(len(things), p, false)
 			for i := range things {
 				if objs[i] != things[i] {
 					t.Errorf("NearestNeighbors failed at index %d: %v != %v", i, objs[i], things[i])
 				}
 			}
 
-			objs = rt.NearestNeighbors(len(things)+2, p)
+			objs = rt.NearestNeighbors(len(things)+2, p, false)
 			if len(objs) > len(things) {
 				t.Errorf("NearestNeighbors failed: too many elements")
 			}
@@ -1311,7 +1311,7 @@ func TestNearestNeighborsFilters(t *testing.T) {
 			p := Point{0.5, 0.5}
 			sort.Sort(byMinDist{expected, p})
 
-			objs := rt.NearestNeighbors(len(things), p, func(r []Spatial, obj Spatial) (bool, bool) {
+			objs := rt.NearestNeighbors(len(things), p, true, func(r []Spatial, obj Spatial) (bool, bool) {
 				for _, ex := range expected {
 					if ex == obj {
 						return false, false
@@ -1347,14 +1347,14 @@ func TestNearestNeighborsHalf(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rt := tc.build()
 
-			objs := rt.NearestNeighbors(3, p)
+			objs := rt.NearestNeighbors(3, p, false)
 			for i := range objs {
 				if objs[i] != things[i] {
 					t.Errorf("NearestNeighbors failed at index %d: %v != %v", i, objs[i], things[i])
 				}
 			}
 
-			objs = rt.NearestNeighbors(len(things)+2, p)
+			objs = rt.NearestNeighbors(len(things)+2, p, false)
 			if len(objs) > len(things) {
 				t.Errorf("NearestNeighbors failed: too many elements")
 			}
@@ -1371,10 +1371,10 @@ func TestMinMaxDistFloatingPointRoundingError(t *testing.T) {
 	}
 	things := make([]Spatial, 0, len(rects))
 	for i := range rects {
-		things = append(things, &rects[i])
+		things = append(things, rects[i])
 	}
 	rt := NewTree(2, 1, 2, things...)
-	n := rt.NearestNeighbor(Point{1134851.8, 25570.8})
+	n := rt.NearestNeighbor(Point{1134851.8, 25570.8}, true)
 	rect := n.(Rect)
 	if !rect.Equal(rects[1]) {
 		t.Fatalf("wrong neighbor, expected %v, got %v", things[1], n)

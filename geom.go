@@ -143,8 +143,8 @@ func (p Point) minMaxDist(r Rect) float64 {
 // Rect represents a subset of n-dimensional Euclidean space of the form
 // [a1, b1] x [a2, b2] x ... x [an, bn], where ai < bi for all 1 <= i <= n.
 type Rect struct {
-	p, q   Point // Enforced by NewRect: p[i] <= q[i] for all i.
-	parent *node
+	p, q     Point // Enforced by NewRect: p[i] <= q[i] for all i.
+	traceBox []Rect
 }
 
 // PointCoord returns the coordinate of the point of the rectangle at i
@@ -183,13 +183,9 @@ func (r Rect) String() string {
 	return strings.Join(s, "x")
 }
 
-func (r Rect) SetParent(parent *node) Spatial {
-	r.parent = parent
+func (r Rect) AppendTraceBox(bb Rect) Spatial {
+	r.traceBox = append(r.traceBox, bb)
 	return r
-}
-
-func (r Rect) GetParent() *node {
-	return r.parent
 }
 
 func (r Rect) Bounds() Rect {

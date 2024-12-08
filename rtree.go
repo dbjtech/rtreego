@@ -276,8 +276,7 @@ func (e entry) String() string {
 // R树上存储对象的接口。以提供存储和查询功能。
 type Spatial interface {
 	Bounds() Rect
-	SetParent(parent *node) Spatial
-	GetParent() *node
+	AppendTraceBox(bb Rect) Spatial
 }
 
 // Insertion
@@ -711,8 +710,8 @@ func (tree *Rtree) condenseTree(n *node) {
 // 内部实现涉及遍历和递归调用。
 // 其实现依据是 A. 古特曼（A. Guttman）所著《R - 树：一种用于空间搜索的动态索引结构》的第 3.1 节，
 // 该内容出自 1984 年美国计算机协会数据管理专业组（ACM SIGMOD）的会议论文集，第 47 至 57 页。
-func (tree *Rtree) SearchIntersect(bb Rect, filters ...Filter) []Spatial {
-	return tree.searchIntersect([]Spatial{}, tree.root, bb, filters)
+func (tree *Rtree) SearchIntersect(bb Rect, needTrace bool, filters ...Filter) []Spatial {
+	return tree.searchIntersect([]Spatial{}, tree.root, bb, needTrace, filters)
 }
 
 // SearchIntersectWithLimit is similar to SearchIntersect, but returns
@@ -725,32 +724,34 @@ func (tree *Rtree) SearchIntersect(bb Rect, filters ...Filter) []Spatial {
 // （带限制的交集搜索） 与 “SearchIntersect（交集搜索）” 类似，
 // 但在找到前 k 个结果时会立即返回。当 k 为负数时，其行为与 “SearchIntersect” 完全一样，会返回所有结果。
 // 保留该功能是为了向后兼容，不过请使用带有 “LimitFilter（限制过滤器）” 的 “SearchIntersect” 来实现相应操作。
-func (tree *Rtree) SearchIntersectWithLimit(k int, bb Rect) []Spatial {
+func (tree *Rtree) SearchIntersectWithLimit(k int, bb Rect, needTrace bool) []Spatial {
 	// backwards compatibility, previous implementation didn't limit results if
 	// k was negative.
 	if k < 0 {
-		return tree.SearchIntersect(bb)
+		return tree.SearchIntersect(bb, needTrace)
 	}
-	return tree.SearchIntersect(bb, LimitFilter(k))
+	return tree.SearchIntersect(bb, needTrace, LimitFilter(k))
 }
 
 // searchIntersect 搜索指定矩形 bb 在 n 节点中相交的所有对象。
 // 会涉及到遍历和递归调用
-func (tree *Rtree) searchIntersect(results []Spatial, n *node, bb Rect, filters []Filter) []Spatial {
+func (tree *Rtree) searchIntersect(results []Spatial, n *node, bb Rect, needTrace bool, filters []Filter) []Spatial {
 	for _, e := range n.entries {
 		if !intersect(e.bb, bb) {
 			continue
 		}
 
 		if !n.leaf {
-			results = tree.searchIntersect(results, e.child, bb, filters)
+			results = tree.searchIntersect(results, e.child, bb, needTrace, filters)
 			continue
 		}
 
 		refuse, abort := applyFilters(results, e.obj, filters)
 		if !refuse {
 			searchOut := e.obj
-			// searchOut = searchOut.SetParent(n)
+			if needTrace {
+				searchOut = searchOut.AppendTraceBox(n.ComputeBoundingBox())
+			}
 			results = append(results, searchOut)
 		}
 
@@ -763,8 +764,8 @@ func (tree *Rtree) searchIntersect(results []Spatial, n *node, bb Rect, filters 
 
 // NearestNeighbor returns the closest object to the specified point.
 // Implemented per "Nearest Neighbor Queries" by Roussopoulos et al
-func (tree *Rtree) NearestNeighbor(p Point) Spatial {
-	obj, _ := tree.nearestNeighbor(p, tree.root, math.MaxFloat64, nil)
+func (tree *Rtree) NearestNeighbor(p Point, needTrace bool) Spatial {
+	obj, _ := tree.nearestNeighbor(p, tree.root, math.MaxFloat64, nil, needTrace)
 	return obj
 }
 
@@ -825,13 +826,16 @@ func pruneEntriesMinDist(d float64, entries []entry, minDists []float64) []entry
 	return entries[:i]
 }
 
-func (tree *Rtree) nearestNeighbor(p Point, n *node, d float64, nearest Spatial) (Spatial, float64) {
+func (tree *Rtree) nearestNeighbor(p Point, n *node, d float64, nearest Spatial, needTrace bool) (Spatial, float64) {
 	if n.leaf {
 		for _, e := range n.entries {
 			dist := math.Sqrt(p.minDist(e.bb))
 			if dist < d {
 				d = dist
 				nearest = e.obj
+				if needTrace {
+					nearest = nearest.AppendTraceBox(n.ComputeBoundingBox())
+				}
 			}
 		}
 	} else {
@@ -858,19 +862,18 @@ func (tree *Rtree) nearestNeighbor(p Point, n *node, d float64, nearest Spatial)
 				continue
 			}
 
-			subNearest, dist := tree.nearestNeighbor(p, e.child, d, nearest)
+			subNearest, dist := tree.nearestNeighbor(p, e.child, d, nearest, needTrace)
 			if dist < d {
 				d = dist
 				nearest = subNearest
 			}
 		}
 	}
-	nearest = nearest.SetParent(n)
 	return nearest, d
 }
 
 // NearestNeighbors gets the closest Spatials to the Point.
-func (tree *Rtree) NearestNeighbors(k int, p Point, filters ...Filter) []Spatial {
+func (tree *Rtree) NearestNeighbors(k int, p Point, needTrace bool, filters ...Filter) []Spatial {
 	// preallocate the buffers for sortings the branches. At each level of the
 	// tree, we slide the buffer by the number of entries in the node.
 	maxBufSize := tree.MaxChildren * tree.Depth()
@@ -881,7 +884,7 @@ func (tree *Rtree) NearestNeighbors(k int, p Point, filters ...Filter) []Spatial
 	dists := make([]float64, 0, k)
 	objs := make([]Spatial, 0, k)
 
-	objs, _, _ = tree.nearestNeighbors(k, p, tree.root, dists, objs, filters, branches, branchDists)
+	objs, _, _ = tree.nearestNeighbors(k, p, tree.root, dists, objs, filters, branches, branchDists, needTrace)
 	return objs
 }
 
@@ -918,7 +921,7 @@ func insertNearest(k int, dists []float64, nearest []Spatial, dist float64, obj 
 	return dists, nearest, false
 }
 
-func (tree *Rtree) nearestNeighbors(k int, p Point, n *node, dists []float64, nearest []Spatial, filters []Filter, b []entry, bd []float64) ([]Spatial, []float64, bool) {
+func (tree *Rtree) nearestNeighbors(k int, p Point, n *node, dists []float64, nearest []Spatial, filters []Filter, b []entry, bd []float64, needTrace bool) ([]Spatial, []float64, bool) {
 	var abort bool
 	if n.leaf {
 		for _, e := range n.entries {
@@ -935,7 +938,7 @@ func (tree *Rtree) nearestNeighbors(k int, p Point, n *node, dists []float64, ne
 			branches = pruneEntriesMinDist(dists[l-1], branches, branchDists)
 		}
 		for _, e := range branches {
-			nearest, dists, abort = tree.nearestNeighbors(k, p, e.child, dists, nearest, filters, b[len(n.entries):], bd[len(n.entries):])
+			nearest, dists, abort = tree.nearestNeighbors(k, p, e.child, dists, nearest, filters, b[len(n.entries):], bd[len(n.entries):], needTrace)
 			if abort {
 				break
 			}
