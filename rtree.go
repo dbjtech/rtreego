@@ -69,6 +69,12 @@ func NewTree(dim, min, max int, objs ...Spatial) *Rtree {
 	return rt
 }
 
+// GetRoot 返回当前存储在树中的当前根节点。
+// 添加/删除节点，可能会导致根节点变化。
+func (tree *Rtree) GetRoot() *node {
+	return tree.root
+}
+
 // Size returns the number of objects currently stored in tree.
 //
 // 返回当前存储在树中的对象的数量。
