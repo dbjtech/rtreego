@@ -8,7 +8,10 @@ package rtreego
 import (
 	"fmt"
 	"math"
+	"reflect"
 	"sort"
+
+	"github.com/mohae/deepcopy"
 )
 
 // Comparator compares two spatials and returns whether they are equal.
@@ -756,7 +759,18 @@ func (tree *Rtree) searchIntersect(results []Spatial, n *node, bb Rect, needTrac
 		if !refuse {
 			searchOut := e.obj
 			if needTrace {
+				valueType := reflect.TypeOf(searchOut)
+				valueKind := valueType.Kind()
+				if valueKind == reflect.Pointer {
+					copyValue := deepcopy.Copy(searchOut)
+					searchOut = copyValue.(Spatial)
+				}
 				searchOut = searchOut.AppendTraceBox(n.ComputeBoundingBox())
+				np := n.parent
+				for np != nil {
+					searchOut = searchOut.AppendTraceBox(np.ComputeBoundingBox())
+					np = np.parent
+				}
 			}
 			results = append(results, searchOut)
 		}
@@ -840,7 +854,18 @@ func (tree *Rtree) nearestNeighbor(p Point, n *node, d float64, nearest Spatial,
 				d = dist
 				nearest = e.obj
 				if needTrace {
+					valueType := reflect.TypeOf(nearest)
+					valueKind := valueType.Kind()
+					if valueKind == reflect.Pointer {
+						copyValue := deepcopy.Copy(nearest)
+						nearest = copyValue.(Spatial)
+					}
 					nearest = nearest.AppendTraceBox(n.ComputeBoundingBox())
+					np := n.parent
+					for np != nil {
+						nearest = nearest.AppendTraceBox(np.ComputeBoundingBox())
+						np = np.parent
+					}
 				}
 			}
 		}
