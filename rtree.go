@@ -29,8 +29,8 @@ type Rtree struct {
 	MinChildren int
 	MaxChildren int
 	root        *node
-	size        int // 每次调用 Insert 都会加 1，调用 DeleteWithComparator 时会减 1
-	height      int
+	size        int    // 每次调用 Insert 都会加 1，调用 DeleteWithComparator 时会减 1
+	height      uint32 // 不应超过 4294967295 层。层数太深，失去了使用树的意义
 
 	// deleted is a temporary buffer to avoid memory allocations in Delete.
 	// It is just an optimization and not part of the data structure.
@@ -92,7 +92,7 @@ func (tree *Rtree) String() string {
 // Depth returns the maximum depth of tree.
 //
 // 返回树的最大深度。
-func (tree *Rtree) Depth() int {
+func (tree *Rtree) Depth() uint32 {
 	return tree.height
 }
 
@@ -168,16 +168,16 @@ func (tree *Rtree) bulkLoad(objs []Spatial) {
 	// sort all entries by first dimension
 	sortByDim(0, entries)
 
-	tree.height = int(h)
+	tree.height = uint32(h)
 	tree.size = n
-	tree.root = tree.omt(int(h), int(S), entries, int(s))
+	tree.root = tree.omt(uint32(h), int(S), entries, int(s))
 }
 
 // omt is the recursive part of the Overlap Minimizing Top-loading bulk-
 // load approach. Returns the root node of a subtree.
 //
 // 重叠最小化顶部加载批量加载方法的递归部分。返回一棵子树的根节点。
-func (tree *Rtree) omt(level, nSlices int, objs []entry, m int) *node {
+func (tree *Rtree) omt(level uint32, nSlices int, objs []entry, m int) *node {
 	// if number of objects is less than or equal than max children per leaf,
 	// we need to create a leaf node
 	if len(objs) <= m {
@@ -221,7 +221,7 @@ func (tree *Rtree) omt(level, nSlices int, objs []entry, m int) *node {
 	// create sub trees
 	walkPartitions(vertSize, objs, func(vert []entry) {
 		// sort vertical slice by a different dimension on every level
-		sortByDim((tree.height-level+1)%tree.Dim, vert)
+		sortByDim(int((tree.height-level+1))%tree.Dim, vert)
 
 		// split slice into groups of size k
 		walkPartitions(k, vert, func(part []entry) {
@@ -241,7 +241,7 @@ func (tree *Rtree) omt(level, nSlices int, objs []entry, m int) *node {
 type node struct {
 	parent  *node
 	entries []entry
-	level   int // node depth in the Rtree
+	level   uint32 // node depth in the Rtree 节点所处深度，不应超过 4294967295 层。层数太深，失去了使用树的意义
 	leaf    bool
 }
 
@@ -310,7 +310,7 @@ func (tree *Rtree) Insert(obj Spatial) {
 // insert adds the specified entry to the tree at the specified level.
 //
 // “插入”（insert）操作会将指定的条目添加到树中指定的层级上。
-func (tree *Rtree) insert(e entry, level int) {
+func (tree *Rtree) insert(e entry, level uint32) {
 	leaf := tree.chooseNode(tree.root, e, level)
 	leaf.entries = append(leaf.entries, e)
 
@@ -344,7 +344,7 @@ func (tree *Rtree) insert(e entry, level int) {
 // chooseNode finds the node at the specified level to which e should be added.
 //
 // “选择节点”（chooseNode）操作会在指定层级上查找元素 e 应添加到哪个节点。
-func (tree *Rtree) chooseNode(n *node, e entry, level int) *node {
+func (tree *Rtree) chooseNode(n *node, e entry, level uint32) *node {
 	if n.leaf || n.level == level { // 如果n是叶子节点或者n的层级等于指定的层级，则应添加到该节点 n 上
 		return n
 	}
@@ -907,7 +907,7 @@ func (tree *Rtree) nearestNeighbor(p Point, n *node, d float64, nearest Spatial,
 func (tree *Rtree) NearestNeighbors(k int, p Point, needTrace bool, filters ...Filter) []Spatial {
 	// preallocate the buffers for sortings the branches. At each level of the
 	// tree, we slide the buffer by the number of entries in the node.
-	maxBufSize := tree.MaxChildren * tree.Depth()
+	maxBufSize := tree.MaxChildren * int(tree.Depth())
 	branches := make([]entry, maxBufSize)
 	branchDists := make([]float64, maxBufSize)
 

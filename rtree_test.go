@@ -118,7 +118,7 @@ func items(n *node) chan Spatial {
 	return ch
 }
 
-func validate(n *node, height, max int) error {
+func validate(n *node, height uint32, max int) error {
 	if n.level != height {
 		return fmt.Errorf("level %d != height %d", n.level, height)
 	}
